@@ -1,6 +1,7 @@
 # lazyiterate
 
 A Go package providing generic, lazy if possible iterator utility functions for functional-style programming.
+For full documentation, see the [GoDoc](https://pkg.go.dev/github.com/longlodw/lazyiterate).
 
 ## Features
 
