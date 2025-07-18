@@ -26,10 +26,12 @@ import (
     "github.com/longlodw/lazyiterate"
 )
 
-seq := slices.Values([]int{1, 2, 3, 4, 5})
-even := lazyiterate.Filter(seq, func(x int) bool { return x%2 == 0 })
-doubled := lazyiterate.Map(even, func(x int) int { return x * 2 })
-count := lazyiterate.Count(doubled)
+int main() {
+    seq := slices.Values([]int{1, 2, 3, 4, 5})
+    even := lazyiterate.Filter(seq, func(x int) bool { return x%2 == 0 })
+    doubled := lazyiterate.Map(even, func(x int) int { return x * 2 })
+    count := lazyiterate.Count(doubled)
+}
 ```
 
 ## Requirements
