@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/longlodw/lazyiterate.git"
+	"github.com/longlodw/lazyiterate"
 )
 
 func TestAll(t *testing.T) {
