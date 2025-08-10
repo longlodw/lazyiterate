@@ -1,3 +1,3 @@
-module github.com/longlodw/lazyiterate.git
+module github.com/longlodw/lazyiterate
 
 go 1.23
