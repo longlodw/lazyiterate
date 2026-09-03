@@ -1,264 +1,118 @@
 package lazyiterate_test
 
 import (
+	"errors"
 	"maps"
-	"reflect"
 	"slices"
 	"testing"
 
 	"github.com/longlodw/lazyiterate"
 )
 
-func TestAll(t *testing.T) {
-	seq := slices.Values([]int{2, 4, 6})
-	if !lazyiterate.All(seq, func(v int) bool { return v%2 == 0 }) {
-		t.Error("All failed for all even")
-	}
-	if lazyiterate.All(seq, func(v int) bool { return v > 2 }) {
-		t.Error("All failed for not all > 2")
-	}
-}
-
-func TestAll2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b"}
-	seq := maps.All(m)
-	if !lazyiterate.All2(seq, func(k int, v string) bool { return len(v) == 1 }) {
-		t.Error("All2 failed for all len==1")
-	}
-	if lazyiterate.All2(seq, func(k int, v string) bool { return k > 1 }) {
-		t.Error("All2 failed for not all k>1")
+func TestLazyIterChain(t *testing.T) {
+	got := slices.Collect(lazyiterate.From(slices.Values([]int{1, 2, 3, 4, 5})).
+		Filter(func(v int) bool { return v%2 == 1 }).
+		Map(func(v int) string { return string(rune('a' + v - 1)) }).
+		Skip(1).Take(2).Reverse().Seq())
+	want := []string{"e", "c"}
+	if !slices.Equal(got, want) {
+		t.Errorf("chain result = %v, want %v", got, want)
 	}
 }
 
-func TestAny(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3})
-	if !lazyiterate.Any(seq, func(v int) bool { return v%2 == 0 }) {
-		t.Error("Any failed for one even")
+func TestLazyIterTerminalOperations(t *testing.T) {
+	it := lazyiterate.From(slices.Values([]int{2, 4, 6}))
+	if !it.All(func(v int) bool { return v%2 == 0 }) || it.Any(func(v int) bool { return v%2 == 1 }) {
+		t.Fatal("unexpected predicate result")
 	}
-	if lazyiterate.Any(seq, func(v int) bool { return v > 3 }) {
-		t.Error("Any failed for none > 3")
+	if got := it.Count(); got != 3 {
+		t.Errorf("Count() = %d, want 3", got)
 	}
-}
-
-func TestAny2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "bb"}
-	seq := maps.All(m)
-	if !lazyiterate.Any2(seq, func(k int, v string) bool { return len(v) == 2 }) {
-		t.Error("Any2 failed for one len==2")
+	if got := it.Reduce(func(acc, v int) int { return acc + v }, 0); got != 12 {
+		t.Errorf("Reduce() = %d, want 12", got)
 	}
-	if lazyiterate.Any2(seq, func(k int, v string) bool { return k > 2 }) {
-		t.Error("Any2 failed for none k>2")
+	v, err := it.Find(func(v int) bool { return v == 4 })
+	if err != nil || v != 4 {
+		t.Errorf("Find() = %d, %v; want 4, nil", v, err)
 	}
-}
-
-func TestCount(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3, 4})
-	if lazyiterate.Count(seq) != 4 {
-		t.Error("Count failed")
+	_, err = it.Find(func(v int) bool { return v == 7 })
+	if !errors.Is(err, lazyiterate.ErrNotFound) {
+		t.Errorf("Find() error = %v, want ErrNotFound", err)
 	}
 }
 
-func TestCount2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b"}
-	seq := maps.All(m)
-	if lazyiterate.Count2(seq) != 2 {
-		t.Error("Count2 failed")
+func TestLazyIter2ChainAndTerminals(t *testing.T) {
+	it := lazyiterate.From2(maps.All(map[int]string{1: "a", 2: "bb", 3: "ccc"}))
+	if !it.All(func(k int, v string) bool { return k == len(v) }) {
+		t.Fatal("All() = false, want true")
+	}
+	if !it.Any(func(k int, v string) bool { return k == 2 && v == "bb" }) {
+		t.Fatal("Any() = false, want true")
+	}
+	if got := it.Count(); got != 3 {
+		t.Errorf("Count() = %d, want 3", got)
+	}
+	key, value, err := it.Find(func(k int, _ string) bool { return k == 2 })
+	if err != nil || key != 2 || value != "bb" {
+		t.Errorf("Find() = %d, %q, %v", key, value, err)
+	}
+	got := slices.Collect(it.Filter(func(k int, _ string) bool { return k > 1 }).Map(func(_ int, v string) string { return v }).Seq())
+	if !slices.Equal(slices.Sorted(slices.Values(got)), []string{"bb", "ccc"}) {
+		t.Errorf("Map() = %v, want [bb ccc]", got)
+	}
+
+	gotPairs := make(map[string]int)
+	for key, value := range it.Filter(func(k int, _ string) bool { return k > 1 }).Map2(func(k int, v string) (string, int) { return v, k * 10 }) {
+		gotPairs[key] = value
+	}
+	want := map[string]int{"bb": 20, "ccc": 30}
+	if !maps.Equal(gotPairs, want) {
+		t.Errorf("Map2() = %v, want %v", gotPairs, want)
+	}
+	if got := it.Reduce(func(acc, k int, _ string) int { return acc + k }, 0); got != 6 {
+		t.Errorf("Reduce() = %d, want 6", got)
+	}
+
+	pairsAfterReverse := make([][2]int, 0)
+	for key, value := range it.Skip(1).Take(1).Reverse() {
+		pairsAfterReverse = append(pairsAfterReverse, [2]int{key, len(value)})
+	}
+	if len(pairsAfterReverse) != 1 {
+		t.Errorf("Skip().Take().Reverse() = %v, want one pair", pairsAfterReverse)
 	}
 }
 
-func TestFind(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3})
-	v, err := lazyiterate.Find(seq, func(x int) bool { return x == 2 })
-	if v != 2 || err != nil {
-		t.Error("Find failed to find 2")
+func TestZipStopsAtShortestSequence(t *testing.T) {
+	got := make([][2]string, 0)
+	for number, letter := range lazyiterate.From(slices.Values([]int{1, 2, 3})).Zip(lazyiterate.From(slices.Values([]string{"a", "b"}))) {
+		got = append(got, [2]string{string(rune('0' + number)), letter})
 	}
-	_, err = lazyiterate.Find(seq, func(x int) bool { return x == 5 })
-	if err == nil {
-		t.Error("Find should not find 5")
-	}
-}
-
-func TestFind2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b"}
-	seq := maps.All(m)
-	k, v, err := lazyiterate.Find2(seq, func(k int, v string) bool { return v == "b" })
-	if v != "b" || k != 2 || err != nil {
-		t.Error("Find2 failed to find b")
-	}
-	_, _, err = lazyiterate.Find2(seq, func(k int, v string) bool { return v == "c" })
-	if err == nil {
-		t.Error("Find2 should not find c")
+	want := [][2]string{{"1", "a"}, {"2", "b"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("Zip() = %v, want %v", got, want)
 	}
 }
 
-func TestFilter(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3, 4})
-	var got []int
-	lazyiterate.Filter(seq, func(v int) bool { return v%2 == 0 })(func(v int) bool {
-		got = append(got, v)
-		return true
+func TestTakeWithNonPositiveCountDoesNotReadInput(t *testing.T) {
+	called := false
+	it := lazyiterate.From(func(yield func(int) bool) { called = true; yield(1) })
+	if got := slices.Collect(it.Take(0).Seq()); len(got) != 0 || called {
+		t.Errorf("Take(0) = %v, input called = %t; want empty without input", got, called)
+	}
+}
+
+func TestTakeDoesNotReadPastLimit(t *testing.T) {
+	produced := 0
+	it := lazyiterate.From(func(yield func(int) bool) {
+		for _, v := range []int{1, 2, 3} {
+			produced++
+			if !yield(v) {
+				return
+			}
+		}
 	})
-	want := []int{2, 4}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Filter got %v, want %v", got, want)
-	}
-}
-
-func TestFilter2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "bb"}
-	seq := maps.All(m)
-	var got []int
-	lazyiterate.Filter2(seq, func(k int, v string) bool { return len(v) == 2 })(func(k int, v string) bool {
-		got = append(got, k)
-		return true
-	})
-	want := []int{2}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Filter2 got %v, want %v", got, want)
-	}
-}
-
-func TestMap(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3})
-	var got []string
-	lazyiterate.Map(seq, func(v int) string { return string(rune('a' + v)) })(func(s string) bool {
-		got = append(got, s)
-		return true
-	})
-	want := []string{"b", "c", "d"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Map got %v, want %v", got, want)
-	}
-}
-
-func TestMap2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b"}
-	seq := maps.All(m)
-	var got []string
-	lazyiterate.Map2(seq, func(k int, v string) string { return v + string(rune('0'+k)) })(func(s string) bool {
-		got = append(got, s)
-		return true
-	})
-	want := []string{"a1", "b2"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Map2 got %v, want %v", got, want)
-	}
-}
-
-func TestReduce(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3})
-	sum := lazyiterate.Reduce(seq, func(acc, v int) int { return acc + v }, 0)
-	if sum != 6 {
-		t.Errorf("Reduce got %v, want 6", sum)
-	}
-}
-
-func TestReduce2(t *testing.T) {
-	m := map[int]int{1: 2, 2: 3}
-	seq := maps.All(m)
-	sum := lazyiterate.Reduce2(seq, func(acc, k, v int) int { return acc + k + v }, 0)
-	if sum != 1+2+2+3 {
-		t.Errorf("Reduce2 got %v, want %v", sum, 1+2+2+3)
-	}
-}
-
-func TestReverse(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3})
-	var got []int
-	lazyiterate.Reverse(seq)(func(v int) bool {
-		got = append(got, v)
-		return true
-	})
-	want := []int{3, 2, 1}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Reverse got %v, want %v", got, want)
-	}
-}
-
-func TestReverse2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b"}
-	seq := maps.All(m)
-	var got []int
-	lazyiterate.Reverse2(seq)(func(k int, v string) bool {
-		got = append(got, k)
-		return true
-	})
-	if len(got) != 2 || (got[0] != 2 && got[0] != 1) {
-		t.Errorf("Reverse2 got %v, want [2,1] or [1,2]", got)
-	}
-}
-
-func TestSkip(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3, 4})
-	var got []int
-	lazyiterate.Skip(seq, 2)(func(v int) bool {
-		got = append(got, v)
-		return true
-	})
-	want := []int{3, 4}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Skip got %v, want %v", got, want)
-	}
-}
-
-func TestSkip2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b", 3: "c"}
-	seq := maps.All(m)
-	var got []int
-	lazyiterate.Skip2(seq, 2)(func(k int, v string) bool {
-		got = append(got, k)
-		return true
-	})
-	if len(got) != 1 {
-		t.Errorf("Skip2 got %v, want 1 element", got)
-	}
-}
-
-func TestTake(t *testing.T) {
-	seq := slices.Values([]int{1, 2, 3, 4})
-	var got []int
-	lazyiterate.Take(seq, 2)(func(v int) bool {
-		got = append(got, v)
-		return true
-	})
-	want := []int{1, 2}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Take got %v, want %v", got, want)
-	}
-}
-
-func TestTake2(t *testing.T) {
-	m := map[int]string{1: "a", 2: "b", 3: "c"}
-	seq := maps.All(m)
-	var got []int
-	lazyiterate.Take2(seq, 2)(func(k int, v string) bool {
-		got = append(got, k)
-		return true
-	})
-	if len(got) != 2 {
-		t.Errorf("Take2 got %v, want 2 elements", got)
-	}
-}
-
-func TestZip(t *testing.T) {
-	seq1 := slices.Values([]int{1, 2, 3, 4})
-	seq2 := slices.Values([]string{"a", "b", "c"})
-	var got []struct {
-		Int    int
-		String string
-	}
-	lazyiterate.Zip(seq1, seq2)(func(i int, s string) bool {
-		got = append(got, struct {
-			Int    int
-			String string
-		}{i, s})
-		return true
-	})
-	want := []struct {
-		Int    int
-		String string
-	}{{1, "a"}, {2, "b"}, {3, "c"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Zip got %v, want %v", got, want)
+	got := slices.Collect(it.Take(2).Seq())
+	if !slices.Equal(got, []int{1, 2}) || produced != 2 {
+		t.Errorf("Take(2) = %v after producing %d values; want [1 2] after 2", got, produced)
 	}
 }

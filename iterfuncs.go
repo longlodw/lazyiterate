@@ -1,12 +1,37 @@
+// Package lazyiterate provides lazy, chainable operations for iterators.
 package lazyiterate
 
 import (
-	"fmt"
+	"errors"
 	"iter"
 )
 
-// Any returns true if any element in the sequence satisfies the predicate.
-func All[T any](it iter.Seq[T], pred func(T) bool) bool {
+// ErrNotFound is returned by Find when no element satisfies its predicate.
+var ErrNotFound = errors.New("lazyiterate: no matching element found")
+
+// LazyIter is a chainable wrapper around an iter.Seq.
+//
+// Use From to wrap an existing sequence. Operations that produce a sequence
+// return LazyIter, so they can be chained; terminal operations return a value.
+type LazyIter[T any] iter.Seq[T]
+
+// LazyIter2 is a chainable wrapper around an iter.Seq2.
+type LazyIter2[K, V any] iter.Seq2[K, V]
+
+// From wraps seq in a LazyIter.
+func From[T any](seq iter.Seq[T]) LazyIter[T] { return LazyIter[T](seq) }
+
+// From2 wraps seq in a LazyIter2.
+func From2[K, V any](seq iter.Seq2[K, V]) LazyIter2[K, V] { return LazyIter2[K, V](seq) }
+
+// Seq returns the underlying iter.Seq.
+func (it LazyIter[T]) Seq() iter.Seq[T] { return iter.Seq[T](it) }
+
+// Seq returns the underlying iter.Seq2.
+func (it LazyIter2[K, V]) Seq() iter.Seq2[K, V] { return iter.Seq2[K, V](it) }
+
+// All reports whether every element satisfies pred.
+func (it LazyIter[T]) All(pred func(T) bool) bool {
 	for v := range it {
 		if !pred(v) {
 			return false
@@ -15,8 +40,8 @@ func All[T any](it iter.Seq[T], pred func(T) bool) bool {
 	return true
 }
 
-// All2 returns true if all key-value pairs in the sequence satisfy the predicate.
-func All2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) bool {
+// All reports whether every key-value pair satisfies pred.
+func (it LazyIter2[K, V]) All(pred func(K, V) bool) bool {
 	for k, v := range it {
 		if !pred(k, v) {
 			return false
@@ -25,8 +50,8 @@ func All2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) bool {
 	return true
 }
 
-// Any returns true if any element in the sequence satisfies the predicate.
-func Any[T any](it iter.Seq[T], pred func(T) bool) bool {
+// Any reports whether any element satisfies pred.
+func (it LazyIter[T]) Any(pred func(T) bool) bool {
 	for v := range it {
 		if pred(v) {
 			return true
@@ -35,8 +60,8 @@ func Any[T any](it iter.Seq[T], pred func(T) bool) bool {
 	return false
 }
 
-// Any2 returns true if any key-value pair in the sequence satisfies the predicate.
-func Any2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) bool {
+// Any reports whether any key-value pair satisfies pred.
+func (it LazyIter2[K, V]) Any(pred func(K, V) bool) bool {
 	for k, v := range it {
 		if pred(k, v) {
 			return true
@@ -45,8 +70,8 @@ func Any2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) bool {
 	return false
 }
 
-// Count returns the number of elements in the sequence.
-func Count[T any](it iter.Seq[T]) int {
+// Count returns the number of elements.
+func (it LazyIter[T]) Count() int {
 	count := 0
 	for range it {
 		count++
@@ -54,8 +79,8 @@ func Count[T any](it iter.Seq[T]) int {
 	return count
 }
 
-// Count2 returns the number of key-value pairs in the sequence.
-func Count2[K any, V any](it iter.Seq2[K, V]) int {
+// Count returns the number of key-value pairs.
+func (it LazyIter2[K, V]) Count() int {
 	count := 0
 	for range it {
 		count++
@@ -63,19 +88,19 @@ func Count2[K any, V any](it iter.Seq2[K, V]) int {
 	return count
 }
 
-// Find returns the first element in the sequence that satisfies the predicate.
-func Find[T any](it iter.Seq[T], pred func(T) bool) (T, error) {
+// Find returns the first element that satisfies pred, or ErrNotFound.
+func (it LazyIter[T]) Find(pred func(T) bool) (T, error) {
 	for v := range it {
 		if pred(v) {
 			return v, nil
 		}
 	}
 	var zero T
-	return zero, fmt.Errorf("no element found")
+	return zero, ErrNotFound
 }
 
-// Find2 returns the first key-value pair in the sequence that satisfies the predicate.
-func Find2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) (K, V, error) {
+// Find returns the first key-value pair that satisfies pred, or ErrNotFound.
+func (it LazyIter2[K, V]) Find(pred func(K, V) bool) (K, V, error) {
 	for k, v := range it {
 		if pred(k, v) {
 			return k, v, nil
@@ -83,53 +108,47 @@ func Find2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) (K, V, error)
 	}
 	var zeroK K
 	var zeroV V
-	return zeroK, zeroV, fmt.Errorf("no element found")
+	return zeroK, zeroV, ErrNotFound
 }
 
-// Filter returns a new sequence containing only the elements that satisfy the predicate.
-func Filter[T any](it iter.Seq[T], pred func(T) bool) iter.Seq[T] {
+// Filter returns the elements that satisfy pred.
+func (it LazyIter[T]) Filter(pred func(T) bool) LazyIter[T] {
 	return func(yield func(T) bool) {
-		it(func(v T) bool {
-			if pred(v) {
-				return yield(v)
-			}
-			return true // continue iteration
-		})
+		it(func(v T) bool { return !pred(v) || yield(v) })
 	}
 }
 
-// Filter2 returns a new sequence containing only the key-value pairs that satisfy the predicate.
-func Filter2[K any, V any](it iter.Seq2[K, V], pred func(K, V) bool) iter.Seq2[K, V] {
+// Filter returns the key-value pairs that satisfy pred.
+func (it LazyIter2[K, V]) Filter(pred func(K, V) bool) LazyIter2[K, V] {
 	return func(yield func(K, V) bool) {
-		it(func(k K, v V) bool {
-			if pred(k, v) {
-				return yield(k, v)
-			}
-			return true // continue iteration
-		})
+		it(func(k K, v V) bool { return !pred(k, v) || yield(k, v) })
 	}
 }
 
-// Map returns a new sequence containing the results of applying the function to each element.
-func Map[T, R any](it iter.Seq[T], fn func(T) R) iter.Seq[R] {
+// Map applies fn to each element.
+func (it LazyIter[T]) Map[R any](fn func(T) R) LazyIter[R] {
 	return func(yield func(R) bool) {
-		it(func(v T) bool {
-			return yield(fn(v))
-		})
+		it(func(v T) bool { return yield(fn(v)) })
 	}
 }
 
-// Map2 returns a new sequence containing the results of applying the function to each key-value pair.
-func Map2[K, V, R any](it iter.Seq2[K, V], fn func(K, V) R) iter.Seq[R] {
+// Map applies fn to each key-value pair and returns a single-value sequence.
+func (it LazyIter2[K, V]) Map[R any](fn func(K, V) R) LazyIter[R] {
 	return func(yield func(R) bool) {
-		it(func(k K, v V) bool {
-			return yield(fn(k, v))
-		})
+		it(func(k K, v V) bool { return yield(fn(k, v)) })
 	}
 }
 
-// Reduce applies a function cumulatively to the elements of the sequence, reducing it to a single value.
-func Reduce[A any, T any](it iter.Seq[T], fn func(A, T) A, init A) A {
+// Map2 applies fn to each key-value pair while preserving a two-value
+// sequence. fn may change both the key and value types.
+func (it LazyIter2[K, V]) Map2[K2, V2 any](fn func(K, V) (K2, V2)) LazyIter2[K2, V2] {
+	return func(yield func(K2, V2) bool) {
+		it(func(k K, v V) bool { return yield(fn(k, v)) })
+	}
+}
+
+// Reduce combines the elements into one value, starting with init.
+func (it LazyIter[T]) Reduce[A any](fn func(A, T) A, init A) A {
 	acc := init
 	for v := range it {
 		acc = fn(acc, v)
@@ -137,8 +156,8 @@ func Reduce[A any, T any](it iter.Seq[T], fn func(A, T) A, init A) A {
 	return acc
 }
 
-// Reduce2 applies a function cumulatively to the key-value pairs of the sequence, reducing it to a single value.
-func Reduce2[A any, K any, V any](it iter.Seq2[K, V], fn func(A, K, V) A, init A) A {
+// Reduce combines the key-value pairs into one value, starting with init.
+func (it LazyIter2[K, V]) Reduce[A any](fn func(A, K, V) A, init A) A {
 	acc := init
 	for k, v := range it {
 		acc = fn(acc, k, v)
@@ -146,115 +165,120 @@ func Reduce2[A any, K any, V any](it iter.Seq2[K, V], fn func(A, K, V) A, init A
 	return acc
 }
 
-// Reverse returns a new sequence with the elements in reverse order.
-func Reverse[T any](it iter.Seq[T]) iter.Seq[T] {
+// Reverse returns the elements in reverse order. It buffers the input before
+// yielding, so it is not streaming.
+func (it LazyIter[T]) Reverse() LazyIter[T] {
 	return func(yield func(T) bool) {
-		var stack []T
-		it(func(v T) bool {
-			stack = append(stack, v)
-			return true // continue iteration
-		})
-		for i := len(stack) - 1; i >= 0; i-- {
-			if !yield(stack[i]) {
-				break // stop if yield returns false
+		var values []T
+		for v := range it {
+			values = append(values, v)
+		}
+		for i := len(values) - 1; i >= 0; i-- {
+			if !yield(values[i]) {
+				return
 			}
 		}
 	}
 }
 
-// Reverse2 returns a new sequence with the key-value pairs in reverse order.
-func Reverse2[K any, V any](it iter.Seq2[K, V]) iter.Seq2[K, V] {
+// Reverse returns the key-value pairs in reverse order. It buffers the input
+// before yielding, so it is not streaming.
+func (it LazyIter2[K, V]) Reverse() LazyIter2[K, V] {
+	type pair struct {
+		key   K
+		value V
+	}
 	return func(yield func(K, V) bool) {
-		var stack []struct {
-			Key K
-			Val V
+		var values []pair
+		for k, v := range it {
+			values = append(values, pair{k, v})
 		}
-		it(func(k K, v V) bool {
-			stack = append(stack, struct {
-				Key K
-				Val V
-			}{k, v})
-			return true // continue iteration
-		})
-		for i := len(stack) - 1; i >= 0; i-- {
-			if !yield(stack[i].Key, stack[i].Val) {
-				break // stop if yield returns false
+		for i := len(values) - 1; i >= 0; i-- {
+			if !yield(values[i].key, values[i].value) {
+				return
 			}
 		}
 	}
 }
 
-// Skip returns a new sequence that skips the first n elements.
-func Skip[T any](it iter.Seq[T], n int) iter.Seq[T] {
+// Skip returns the sequence after its first n elements. A non-positive n does
+// not skip any elements.
+func (it LazyIter[T]) Skip(n int) LazyIter[T] {
 	return func(yield func(T) bool) {
-		count := 0
+		skipped := 0
 		it(func(v T) bool {
-			if count >= n {
-				return yield(v)
+			if skipped < n {
+				skipped++
+				return true
 			}
-			count++
-			return true // continue iteration
+			return yield(v)
 		})
 	}
 }
 
-// Skip2 returns a new sequence that skips the first n key-value pairs.
-func Skip2[K any, V any](it iter.Seq2[K, V], n int) iter.Seq2[K, V] {
+// Skip returns the sequence after its first n key-value pairs. A non-positive
+// n does not skip any pairs.
+func (it LazyIter2[K, V]) Skip(n int) LazyIter2[K, V] {
 	return func(yield func(K, V) bool) {
-		count := 0
+		skipped := 0
 		it(func(k K, v V) bool {
-			if count >= n {
-				return yield(k, v)
+			if skipped < n {
+				skipped++
+				return true
 			}
-			count++
-			return true // continue iteration
+			return yield(k, v)
 		})
 	}
 }
 
-// Take returns a new sequence that takes the first n elements.
-func Take[T any](it iter.Seq[T], n int) iter.Seq[T] {
+// Take returns at most the first n elements. A non-positive n returns an empty
+// sequence.
+func (it LazyIter[T]) Take(n int) LazyIter[T] {
 	return func(yield func(T) bool) {
-		count := 0
+		if n <= 0 {
+			return
+		}
+		taken := 0
 		it(func(v T) bool {
-			if count < n {
-				count++
-				return yield(v)
+			if !yield(v) {
+				return false
 			}
-			return false // stop iteration after n elements
+			taken++
+			return taken < n
 		})
 	}
 }
 
-// Take2 returns a new sequence that takes the first n key-value pairs.
-func Take2[K any, V any](it iter.Seq2[K, V], n int) iter.Seq2[K, V] {
+// Take returns at most the first n key-value pairs. A non-positive n returns
+// an empty sequence.
+func (it LazyIter2[K, V]) Take(n int) LazyIter2[K, V] {
 	return func(yield func(K, V) bool) {
-		count := 0
+		if n <= 0 {
+			return
+		}
+		taken := 0
 		it(func(k K, v V) bool {
-			if count < n {
-				count++
-				return yield(k, v)
+			if !yield(k, v) {
+				return false
 			}
-			return false // stop iteration after n pairs
+			taken++
+			return taken < n
 		})
 	}
 }
 
-// Zip returns a new sequence that combines elements from two sequences into pairs.
-func Zip[T1, T2 any](it1 iter.Seq[T1], it2 iter.Seq[T2]) iter.Seq2[T1, T2] {
-	return func(yield func(T1, T2) bool) {
-		next1, stop1 := iter.Pull(it1)
-		defer stop1()
-		next2, stop2 := iter.Pull(it2)
-		defer stop2()
+// Zip pairs this sequence with other, stopping when either sequence ends.
+func (it LazyIter[T]) Zip[U any](other LazyIter[U]) LazyIter2[T, U] {
+	return func(yield func(T, U) bool) {
+		next, stop := iter.Pull(it.Seq())
+		defer stop()
+		otherNext, otherStop := iter.Pull(other.Seq())
+		defer otherStop()
 		for {
-			v1, ok1 := next1()
-			v2, ok2 := next2()
-			if !ok1 || !ok2 {
-				break // stop if either sequence is exhausted
-			}
-			if !yield(v1, v2) {
-				break // stop if yield returns false
+			v, ok := next()
+			u, otherOK := otherNext()
+			if !ok || !otherOK || !yield(v, u) {
+				return
 			}
 		}
 	}
